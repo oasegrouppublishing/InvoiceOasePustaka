@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Oase Pustaka - Sistem Manajemen Keuangan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #f1f5f9; 
+            -webkit-font-smoothing: antialiased;
+        }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        #print-document {
+            width: 210mm;
+            min-height: 297mm;
+            background: white;
+            position: relative;
+            color: #000;
+        }
+
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        
+        .spinner {
+            border: 3px solid rgba(30, 58, 138, 0.1);
+            border-radius: 50%;
+            border-top: 3px solid #1e3a8a;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Custom 3-State Slider */
+        .status-slider {
+            -webkit-appearance: none;
+            width: 60px;
+            height: 24px;
+            background: #cbd5e1;
+            outline: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background .3s;
+        }
+        .status-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .status-slider.state-0 { background: #ef4444; } /* Belum Lunas - Red */
+        .status-slider.state-1 { background: #f59e0b; } /* Downpayment - Orange */
+        .status-slider.state-2 { background: #10b981; } /* Lunas - Green */
+        
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 999999;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            animation: fadeIn 0.3s ease-out;
+        }
+        .toast.success { background-color: #10b981; }
+        .toast.error { background-color: #ef4444; }
+        .toast.info { background-color: #3b82f6; }
+        @keyframes fadeOut { to { opacity: 0; transform: translateY(10px); } }
+    </style>
+</head>
+<body class="pb-20">
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <div class="max-w-6xl mx-auto px-4 pt-8">
+        
+        <!-- Header & Stats (Top Area) -->
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
+            <div>
+                <h1 class="text-4xl font-black text-blue-950 tracking-tighter uppercase leading-none">Oase Pustaka</h1>
+                <p class="text-sm font-bold text-gray-400 mt-1 uppercase tracking-widest">Otomatisasi Keuangan</p>
+                <div id="sync-status" class="mt-2 inline-flex items-center gap-1.5 bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-ping"></span> Cloud Aktif
+                </div>
+            </div>
+
+            <!-- 4 Statistic Boxes -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 w-full lg:w-auto">
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 min-w-[120px]">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase">Total Arsip</p>
+                    <p id="stat-total" class="text-2xl font-black text-blue-950">0</p>
+                </div>
+                <div class="bg-green-50 p-4 rounded-2xl shadow-sm border border-green-100 min-w-[120px]">
+                    <p class="text-[10px] font-bold text-green-600 uppercase">Sudah Lunas</p>
+                    <p id="stat-lunas" class="text-2xl font-black text-green-700">0</p>
+                </div>
+                <div class="bg-orange-50 p-4 rounded-2xl shadow-sm border border-orange-100 min-w-[120px]">
+                    <p class="text-[10px] font-bold text-orange-600 uppercase">DP / Cicilan</p>
+                    <p id="stat-dp" class="text-2xl font-black text-orange-700">0</p>
+                </div>
+                <div class="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 min-w-[120px]">
+                    <p class="text-[10px] font-bold text-red-600 uppercase">Belum Lunas</p>
+                    <p id="stat-belum" class="text-2xl font-black text-red-700">0</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- FORMULIR BUAT INVOICE (Tengah & Lebar) -->
+        <div class="max-w-4xl mx-auto bg-white p-6 md:p-10 rounded-[2.5rem] shadow-xl border border-gray-100 mb-16 animate-fade-in relative z-10">
+            <h2 class="text-2xl font-black mb-8 text-blue-950 uppercase tracking-tight text-center border-b-2 border-gray-50 pb-4">Buat Invoice Baru</h2>
+            
+            <div class="space-y-6">
+                <!-- Info Dasar -->
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Tanggal Transaksi</label>
+                        <input type="date" id="inv-date" class="w-full p-4 border rounded-2xl bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-700">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Jenis Layanan</label>
+                        <select id="inv-type" onchange="toggleFormType()" class="w-full p-4 border rounded-2xl bg-gray-50 outline-none font-bold text-blue-900 cursor-pointer">
+                            <option value="penerbitan">Invoice Penerbitan</option>
+                            <option value="percetakan">Invoice Percetakan</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Nama Pelanggan</label>
+                        <input type="text" id="cust-name" placeholder="Cth: Bpk. Ahmad" class="w-full p-4 border rounded-2xl bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Nama Admin</label>
+                        <input type="text" id="admin-name" placeholder="Admin Bertugas" class="w-full p-4 border rounded-2xl bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800">
+                    </div>
+                </div>
+                
+                <!-- Items -->
+                <div class="bg-gray-50 p-6 rounded-3xl border border-gray-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <label class="text-xs font-black text-blue-950 uppercase tracking-widest">Rincian Tagihan</label>
+                        <button onclick="addItem()" class="px-4 py-2 bg-blue-100 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-200 transition">+ Tambah Item</button>
+                    </div>
+                    <div id="items-container" class="space-y-3"></div>
+                </div>
+                
+                <!-- Pembayaran -->
+                <div class="grid md:grid-cols-2 gap-4 items-start">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Status Pembayaran</label>
+                        <select id="payment-status" onchange="toggleDP()" class="w-full p-4 border rounded-2xl bg-gray-50 outline-none font-black text-blue-900 cursor-pointer">
+                            <option value="Belum Lunas">Belum Lunas</option>
+                            <option value="Downpayment">Downpayment</option>
+                            <option value="Cicilan">Cicilan</option>
+                            <option value="Lunas">Lunas</option>
+                        </select>
+                    </div>
+                    <div id="dp-container" class="hidden">
+                        <label class="block text-xs font-bold text-orange-500 uppercase mb-2">Uang Muka / DP (Rp)</label>
+                        <input type="number" id="dp-amount" oninput="calculateTotal()" class="w-full p-4 border rounded-2xl bg-orange-50 font-black text-orange-700 outline-none focus:ring-2 focus:ring-orange-500" placeholder="0">
+                    </div>
+                </div>
+
+                <!-- Eksekusi -->
+                <div class="pt-6 border-t border-gray-100">
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-sm font-bold text-gray-400 uppercase tracking-widest">Sisa Tagihan:</span>
+                        <span class="text-3xl font-black text-blue-700" id="display-total">Rp 0</span>
+                    </div>
+                    <button id="btn-generate" onclick="generateInvoice()" class="w-full py-5 bg-blue-950 text-white rounded-2xl font-black text-lg shadow-2xl hover:bg-black transition active:scale-95">
+                        SIMPAN & BUAT INVOICE
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION RIWAYAT (Di Bawah Form) -->
+        <div id="section-riwayat" class="max-w-6xl mx-auto animate-fade-in">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 px-2">
+                <div>
+                    <h2 class="text-2xl font-black text-blue-950 uppercase tracking-tighter">Manajemen Riwayat</h2>
+                    <p class="text-gray-500 text-xs mt-1 font-medium">Data tersinkronisasi otomatis dengan Cloud. Geser slider untuk ubah status.</p>
+                </div>
+                <div class="flex gap-2 w-full md:w-auto">
+                    <input type="text" id="search-inv" oninput="handleSearch()" placeholder="Cari Nama / ID Invoice..." class="flex-1 md:w-64 p-3 border rounded-xl bg-white shadow-sm outline-none text-sm font-bold focus:ring-2 focus:ring-blue-500">
+                    <button onclick="fetchHistoryFromCloud()" class="p-3 bg-white border shadow-sm text-blue-900 rounded-xl hover:bg-gray-50 transition font-black text-xs uppercase flex items-center gap-2">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            
+            <div id="loading-riwayat" class="hidden py-10 text-center">
+                <div class="spinner mx-auto mb-3"></div>
+                <p class="text-blue-900 font-bold text-xs uppercase tracking-widest animate-pulse">Menarik Data...</p>
+            </div>
+
+            <!-- Grid Riwayat -->
+            <div id="history-list" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8"></div>
+            
+            <!-- Paginasi -->
+            <div id="pagination-controls" class="hidden flex justify-center items-center gap-4 py-4">
+                <button onclick="changePage(-1)" id="btn-prev-page" class="px-4 py-2 bg-white border rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Sebelumnya</button>
+                <span id="page-info" class="text-sm font-bold text-gray-500">Hal 1 / 1</span>
+                <button onclick="changePage(1)" id="btn-next-page" class="px-4 py-2 bg-white border rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Berikutnya</button>
+            </div>
+
+            <div id="history-empty" class="hidden py-20 text-center bg-white rounded-3xl border border-dashed border-gray-200">
+                <p class="text-gray-400 font-black uppercase tracking-widest text-sm">Tidak Ada Data</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- PREVIEW MODAL (Z-Index Sangat Tinggi agar tombol pasti bisa diklik) -->
+    <div id="preview-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-0 md:p-4">
+        <div class="bg-white w-full max-w-6xl h-full md:h-[95vh] rounded-none md:rounded-3xl flex flex-col shadow-2xl overflow-hidden relative">
+            
+            <!-- Header Modal Tindakan -->
+            <div class="p-5 border-b border-gray-200 bg-gray-50 flex flex-wrap gap-4 justify-between items-center relative z-[100000]">
+                <h3 class="text-lg font-black text-blue-950 uppercase tracking-tighter flex items-center gap-2">
+                    <span class="w-3 h-3 bg-green-500 rounded-full"></span>
+                    Pratinjau Dokumen HD
+                </h3>
+                <div class="flex flex-wrap gap-2">
+                    <button id="btn-export-pdf" onclick="exportPDF()" class="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg hover:bg-red-700 transition cursor-pointer">Unduh PDF</button>
+                    <button id="btn-export-jpg" onclick="exportJPG()" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl text-xs font-black shadow-lg hover:bg-orange-600 transition cursor-pointer">Unduh JPG</button>
+                    <button onclick="exportWord()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black shadow-lg hover:bg-blue-700 transition cursor-pointer">Word (.doc)</button>
+                    <button onclick="closePreview()" class="px-5 py-2.5 bg-gray-300 text-gray-800 rounded-xl text-xs font-black hover:bg-gray-400 transition cursor-pointer ml-2">Tutup</button>
+                </div>
+            </div>
+
+            <!-- Area Gulir Dokumen -->
+            <div id="invoice-wrapper" class="overflow-auto bg-gray-300 p-4 flex-1 relative z-[99998]">
+                <div id="print-document" class="p-12 md:p-16 relative mx-auto bg-white">
+                    <div class="flex justify-between items-start border-b-8 border-blue-900 pb-8 mb-10">
+                        <div>
+                            <h2 class="text-4xl font-black text-blue-900 tracking-tighter leading-none italic uppercase">Oase Pustaka</h2>
+                            <p class="text-[12px] text-gray-500 uppercase font-black tracking-[0.2em] mt-2">Penerbitan & Percetakan Buku</p>
+                        </div>
+                        <div class="text-right text-[11px] text-gray-700 leading-tight">
+                            <p class="font-black text-blue-950 uppercase">Kantor Pusat:</p>
+                            <p>Jl Kopral Jono RT 02/02 Jetis Jaten</p>
+                            <p>Karanganyar, Jawa Tengah, Indonesia</p>
+                            <p class="font-black text-blue-700 mt-1">WA: 0878-1721-7871</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between mb-12">
+                        <div>
+                            <p class="text-gray-400 text-[10px] font-black uppercase mb-1 tracking-widest">Tagihan Kepada:</p>
+                            <p id="render-cust-name" class="font-black text-2xl text-gray-900 uppercase border-b-4 border-blue-50 pb-1"></p>
+                        </div>
+                        <div class="text-right">
+                            <p id="render-inv-id" class="font-mono font-black text-blue-700 text-xl"></p>
+                            <p id="render-inv-date" class="text-sm font-bold text-gray-400"></p>
+                        </div>
+                    </div>
+
+                    <table class="w-full text-left text-sm mb-12 border-collapse">
+                        <thead>
+                            <tr class="bg-blue-950 text-white">
+                                <th class="p-4 md:p-5 rounded-tl-2xl uppercase tracking-widest font-black text-[11px]">Rincian Transaksi</th>
+                                <th class="p-4 md:p-5 rounded-tr-2xl text-right uppercase tracking-widest font-black text-[11px]">Biaya (Rp)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="render-items-list" class="divide-y divide-gray-200 bg-white"></tbody>
+                    </table>
+
+                    <div class="grid grid-cols-2 gap-8 md:gap-12 items-start">
+                        <div class="bg-blue-50/50 p-5 md:p-6 rounded-3xl border border-blue-100">
+                            <h4 class="font-black text-blue-950 text-[11px] mb-4 uppercase tracking-widest">Metode Pembayaran:</h4>
+                            <div class="text-[10px] md:text-[11px] space-y-3 text-gray-700 font-medium">
+                                <div class="flex justify-between border-b border-blue-100 pb-1"><span>Mandiri (M. Bintang Y)</span><span class="font-black text-blue-900">138.001341.224.7</span></div>
+                                <div class="flex justify-between border-b border-blue-100 pb-1"><span>Mandiri (CV Oase Pustaka)</span><span class="font-black text-blue-900">138.002291.164.3</span></div>
+                                <div class="flex justify-between"><span>BCA (Tati Sulastry U)</span><span class="font-black text-blue-900">3270568270</span></div>
+                            </div>
+                        </div>
+                        <div class="text-right space-y-2 pr-2 md:pr-4">
+                            <div class="flex justify-between text-sm text-gray-400 font-bold uppercase"><span>Subtotal:</span><span id="render-subtotal" class="text-gray-900"></span></div>
+                            <div class="flex justify-between text-sm text-orange-600 font-black italic"><span>DP/Dibayar:</span><span id="render-dp"></span></div>
+                            <div class="flex justify-between text-2xl md:text-3xl font-black text-blue-900 pt-4 border-t-8 border-blue-950 mt-4"><span>TOTAL:</span><span id="render-total"></span></div>
+                            <p id="render-status" class="text-[10px] md:text-[11px] font-black text-blue-500 uppercase tracking-widest pt-2 italic"></p>
+                        </div>
+                    </div>
+
+                    <div class="mt-32 flex justify-between text-center px-4 md:px-10">
+                        <div class="w-40 md:w-48 flex flex-col justify-end items-center">
+                            <p class="text-[10px] text-gray-400 font-black uppercase mb-16 tracking-tighter">Pihak Penerima,</p>
+                            <p id="render-footer-cust" class="font-black text-sm border-t-2 border-gray-900 pt-3 uppercase w-full"></p>
+                        </div>
+                        <div class="w-40 md:w-48 flex flex-col justify-end items-center">
+                            <p class="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-2">Admin Oase Pustaka</p>
+                            <!-- Tanda Tangan (Preloaded via Base64) -->
+                            <div class="h-20 flex items-center justify-center mb-2">
+                                <img id="render-signature-img" src="" alt="TTD Resmi" class="h-16 md:h-20 object-contain">
+                            </div>
+                            <p id="render-footer-admin" class="font-black text-sm border-t-2 border-gray-900 pt-3 italic uppercase w-full"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // MASUKKAN URL GOOGLE APPS SCRIPT ANDA DI SINI
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwNEp176ryq11HDKGSN96NuasNIs_u19VrR2XZWKga7AjvQpIx1OnXbTbpDjIgh5wAX/exec"; 
+
+        let invoiceHistory = [];
+        let itemsCount = 0;
+        let currentPreviewData = null;
+        let preloadedBase64Signature = "";
+        
+        // Pagination Variables
+        let currentPage = 1;
+        const itemsPerPage = 20;
+
+        const statusMap = ["Belum Lunas", "Downpayment", "Lunas"];
+
+        // Custom Toast Notification System
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerText = message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'fadeOut 0.3s ease-in forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Anti-CORS Base64 Preload for Signature
+        // Memaksa download gambar menjadi format Base64 teks lokal agar tidak diblokir saat export PDF/JPG
+        function preloadSignature() {
+            const img = new Image();
+            img.crossOrigin = "Anonymous"; 
+            // Bypass cache dengan timestamp
+            img.src = "https://i.ibb.co.com/mrC63q48/TTD-lilis-dan-logo2.png?t=" + new Date().getTime();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width; canvas.height = img.height;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                preloadedBase64Signature = canvas.toDataURL('image/png');
+                document.getElementById('render-signature-img').src = preloadedBase64Signature;
+            };
+            img.onerror = () => {
+                console.warn("Gambar TTD diblokir CORS. Coba tanpa crossorigin.");
+                const fbImg = new Image();
+                fbImg.src = "https://i.ibb.co.com/mrC63q48/TTD-lilis-dan-logo2.png";
+                fbImg.onload = () => { document.getElementById('render-signature-img').src = fbImg.src; }
+            }
+        }
+
+        window.onload = () => {
+            preloadSignature(); // Jalankan preload TTD
+
+            const dateInput = document.getElementById('inv-date');
+            if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+            
+            addItem();
+            
+            try {
+                const local = localStorage.getItem('oase_invoices');
+                if (local) {
+                    invoiceHistory = JSON.parse(local);
+                    renderHistory();
+                    updateStats();
+                }
+            } catch (e) { console.error("Local storage error"); }
+
+            fetchHistoryFromCloud();
+        };
+
+        async function fetchHistoryFromCloud() {
+            if (!SCRIPT_URL || SCRIPT_URL === "") return;
+            const loader = document.getElementById('loading-riwayat');
+            const syncText = document.getElementById('sync-status');
+            if(loader) loader.classList.remove('hidden');
+
+            try {
+                const response = await fetch(SCRIPT_URL);
+                if (!response.ok) throw new Error();
+                const cloudData = await response.json();
+                
+                if (Array.isArray(cloudData)) {
+                    invoiceHistory = cloudData;
+                    localStorage.setItem('oase_invoices', JSON.stringify(invoiceHistory));
+                    currentPage = 1; // Reset halaman
+                    renderHistory();
+                    updateStats();
+                    if(syncText) syncText.innerHTML = `<span class="w-2 h-2 bg-green-500 rounded-full animate-ping"></span> Cloud Sinkron`;
+                }
+            } catch (err) {
+                if(syncText) syncText.innerHTML = `<span class="w-2 h-2 bg-red-500 rounded-full"></span> Offline`;
+                syncText.className = "mt-2 inline-flex items-center gap-1.5 bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider";
+            } finally {
+                if(loader) loader.classList.add('hidden');
+            }
+        }
+
+        async function updateCloudStatus(id, newStatus) {
+            if (!SCRIPT_URL) return;
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify({ action: "UPDATE_STATUS", id: id, status: newStatus })
+                });
+            } catch (err) {}
+        }
+
+        async function syncToSpreadsheet(data) {
+            if (!SCRIPT_URL || SCRIPT_URL === "") return false;
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify(data)
+                });
+                return true;
+            } catch (err) { return false; }
+        }
+
+        function updateStats() {
+            document.getElementById('stat-total').innerText = invoiceHistory.length;
+            document.getElementById('stat-lunas').innerText = invoiceHistory.filter(i => i.status === 'Lunas').length;
+            document.getElementById('stat-dp').innerText = invoiceHistory.filter(i => i.status === 'Downpayment' || i.status === 'Cicilan').length;
+            document.getElementById('stat-belum').innerText = invoiceHistory.filter(i => i.status === 'Belum Lunas').length;
+        }
+
+        function toggleFormType() {
+            const container = document.getElementById('items-container');
+            if(container) container.innerHTML = '';
+            itemsCount = 0;
+            addItem();
+            calculateTotal();
+        }
+
+        function addItem() {
+            itemsCount++;
+            const typeSelect = document.getElementById('inv-type');
+            const type = typeSelect ? typeSelect.value : 'penerbitan';
+            const container = document.getElementById('items-container');
+            if(!container) return;
+
+            const div = document.createElement('div');
+            div.id = `item-row-${itemsCount}`;
+            div.className = "item-row bg-white p-4 rounded-2xl border border-gray-200 relative group animate-fade-in shadow-sm";
+            
+            let extra = type === 'penerbitan' ? `
+                <div class="grid grid-cols-2 gap-3 mt-3">
+                    <select id="extra1-${itemsCount}" class="p-3 border rounded-xl text-xs bg-gray-50 font-bold text-gray-800 outline-none focus:ring-1 focus:ring-blue-300">
+                        <option value="ISBN">ISBN</option><option value="QRCBN">QRCBN</option>
+                    </select>
+                    <select id="extra2-${itemsCount}" class="p-3 border rounded-xl text-xs bg-gray-50 font-bold text-gray-800 outline-none focus:ring-1 focus:ring-blue-300">
+                        <option value="Transfer">Transfer</option><option value="QRIS">QRIS</option><option value="Tunai">Tunai</option>
+                    </select>
+                </div>
+            ` : `
+                <div class="grid grid-cols-2 gap-3 mt-3 text-gray-800 font-bold">
+                    <input type="text" id="extra1-${itemsCount}" placeholder="Kertas/Ukuran/Jilid" class="p-3 border rounded-xl bg-gray-50 text-xs outline-none focus:ring-1 focus:ring-blue-300 font-medium">
+                    <input type="number" id="qty-${itemsCount}" oninput="calculateTotal()" placeholder="Jumlah Eks" class="p-3 border rounded-xl bg-gray-50 text-xs outline-none font-bold text-blue-800 focus:ring-1 focus:ring-blue-300" value="1">
+                </div>
+            `;
+
+            // Membuat input sejajar horizontal jika di desktop
+            div.innerHTML = `
+                <button onclick="removeItem(${itemsCount})" class="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-lg text-sm font-bold z-10 hover:bg-red-600">×</button>
+                <div class="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                    <div class="flex-1 w-full">
+                        <input type="text" id="title-${itemsCount}" placeholder="Ketik Judul Buku..." class="w-full p-3 border rounded-xl text-sm font-bold outline-none text-gray-800 focus:ring-2 focus:ring-blue-500 bg-gray-50">
+                        ${extra}
+                    </div>
+                    <div class="w-full md:w-1/3">
+                        <label class="text-[9px] font-bold text-gray-400 uppercase ml-1">Biaya Item (Rp)</label>
+                        <input type="number" id="cost-${itemsCount}" oninput="calculateTotal()" placeholder="0" class="w-full p-3 border rounded-xl text-sm font-black text-blue-700 bg-blue-50 outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function removeItem(id) {
+            const rows = document.querySelectorAll('.item-row');
+            if (rows.length > 1) {
+                const el = document.getElementById(`item-row-${id}`);
+                if(el) el.remove();
+                calculateTotal();
+            }
+        }
+
+        function toggleDP() {
+            const status = document.getElementById('payment-status').value;
+            const dpContainer = document.getElementById('dp-container');
+            if(dpContainer) dpContainer.classList.toggle('hidden', status !== 'Downpayment' && status !== 'Cicilan');
+            calculateTotal();
+        }
+
+        function calculateTotal() {
+            let subtotal = 0;
+            const typeSelect = document.getElementById('inv-type');
+            const type = typeSelect ? typeSelect.value : 'penerbitan';
+            
+            document.querySelectorAll('.item-row').forEach(row => {
+                const id = row.id.split('-').pop();
+                const costEl = document.getElementById(`cost-${id}`);
+                const cost = costEl ? (parseFloat(costEl.value) || 0) : 0;
+                
+                if (type === 'percetakan') {
+                    const qtyEl = document.getElementById(`qty-${id}`);
+                    const qty = qtyEl ? (parseFloat(qtyEl.value) || 1) : 1;
+                    subtotal += (cost * qty);
+                } else {
+                    subtotal += cost;
+                }
+            });
+
+            const dpEl = document.getElementById('dp-amount');
+            const dp = dpEl ? (parseFloat(dpEl.value) || 0) : 0;
+            const total = Math.max(0, subtotal - dp);
+            
+            const displayTotal = document.getElementById('display-total');
+            if(displayTotal) displayTotal.innerText = formatIDR(total);
+            
+            return { subtotal, dp, total };
+        }
+
+        function formatIDR(num) { return "Rp " + (num || 0).toLocaleString('id-ID'); }
+
+        async function generateInvoice() {
+            const btn = document.getElementById('btn-generate');
+            const custInput = document.getElementById('cust-name');
+            const typeSelect = document.getElementById('inv-type');
+            
+            if (!custInput || !custInput.value) {
+                showToast("Harap isi nama pelanggan!", "error");
+                custInput.focus();
+                return;
+            }
+            
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "MENYIMPAN KE CLOUD...";
+            
+            try {
+                const totals = calculateTotal();
+                const type = typeSelect.value;
+                const adminInput = document.getElementById('admin-name');
+                const statusSelect = document.getElementById('payment-status');
+                const dateInput = document.getElementById('inv-date');
+
+                const data = {
+                    id: "INV-" + Date.now().toString().slice(-6),
+                    name: custInput.value,
+                    date: dateInput.value,
+                    type: type,
+                    admin: (adminInput && adminInput.value) ? adminInput.value : "Admin Oase Pustaka",
+                    status: statusSelect.value,
+                    ...totals,
+                    items: []
+                };
+
+                document.querySelectorAll('.item-row').forEach(row => {
+                    const id = row.id.split('-').pop();
+                    const titleEl = document.getElementById(`title-${id}`);
+                    const costEl = document.getElementById(`cost-${id}`);
+                    const extra1El = document.getElementById(`extra1-${id}`);
+                    
+                    if (titleEl) {
+                        let detail = "";
+                        if (type === 'penerbitan') {
+                            const extra2El = document.getElementById(`extra2-${id}`);
+                            detail = `${extra1El ? extra1El.value : 'ISBN'} | ${extra2El ? extra2El.value : 'Transfer'}`;
+                        } else {
+                            const qtyEl = document.getElementById(`qty-${id}`);
+                            detail = `${extra1El && extra1El.value ? extra1El.value : 'Sesuai Standar'} (${qtyEl ? qtyEl.value : 1} Eks)`;
+                        }
+                        data.items.push({
+                            title: titleEl.value || "Buku Tanpa Judul",
+                            detail: detail,
+                            cost: costEl ? (parseFloat(costEl.value) || 0) : 0
+                        });
+                    }
+                });
+
+                await syncToSpreadsheet(data);
+                
+                // Update Lokal & Paginasi
+                invoiceHistory.unshift(data);
+                localStorage.setItem('oase_invoices', JSON.stringify(invoiceHistory));
+                currentPage = 1; // Kembali ke halaman 1 agar data baru terlihat
+                
+                renderHistory();
+                updateStats();
+                showToast("Invoice berhasil disimpan!", "success");
+                showPreview(data);
+                
+                // Reset form sedikit
+                custInput.value = "";
+            } catch (err) {
+                console.error(err);
+                showToast("Gagal memproses data.", "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        }
+
+        // Paginasi & Render Logic
+        function handleSearch() {
+            currentPage = 1; // Reset halaman saat mencari
+            renderHistory();
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            renderHistory();
+            // Scroll otomatis ke bagian riwayat agar nyaman
+            document.getElementById('section-riwayat').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-list');
+            const emptyState = document.getElementById('history-empty');
+            const paginationControls = document.getElementById('pagination-controls');
+            const pageInfo = document.getElementById('page-info');
+            const btnPrev = document.getElementById('btn-prev-page');
+            const btnNext = document.getElementById('btn-next-page');
+
+            const queryInput = document.getElementById('search-inv');
+            const query = queryInput ? queryInput.value.toLowerCase() : '';
+            
+            // Filter Data
+            const filteredData = invoiceHistory.filter(inv => 
+                inv.name.toLowerCase().includes(query) || String(inv.id).toLowerCase().includes(query)
+            );
+
+            if (!container) return;
+            if (filteredData.length === 0) {
+                container.innerHTML = '';
+                if(emptyState) emptyState.classList.remove('hidden');
+                if(paginationControls) paginationControls.classList.add('hidden');
+                return;
+            }
+
+            if(emptyState) emptyState.classList.add('hidden');
+
+            // Kalkulasi Paginasi
+            const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const paginatedData = filteredData.slice(startIndex, endIndex);
+
+            // Render Kartu
+            container.innerHTML = paginatedData.map((inv) => {
+                const statusIndex = statusMap.indexOf(inv.status) !== -1 ? statusMap.indexOf(inv.status) : 0;
+                const statusColor = statusIndex == 0 ? 'text-red-500' : (statusIndex == 1 ? 'text-orange-500' : 'text-green-600');
+                
+                return `
+                <div class="bg-white p-6 rounded-[2rem] border border-gray-100 hover:border-blue-300 hover:shadow-2xl transition-all duration-300 animate-fade-in group shadow-sm">
+                    <div class="flex justify-between items-start mb-4 border-b border-gray-50 pb-3">
+                        <span class="px-3 py-1 bg-gray-100 text-gray-600 rounded-md text-[10px] font-black uppercase tracking-widest">${inv.type}</span>
+                        <div class="flex flex-col items-end gap-1.5">
+                            <span id="label-${inv.id}" class="text-[10px] font-black uppercase tracking-wider ${statusColor}">${inv.status}</span>
+                            <input type="range" min="0" max="2" value="${statusIndex}" id="slider-${inv.id}" 
+                                   class="status-slider state-${statusIndex}" 
+                                   onchange="handleStatusSlider('${inv.id}', this.value)">
+                        </div>
+                    </div>
+                    <div class="mb-5">
+                        <h4 class="font-black text-blue-950 uppercase text-lg leading-tight mb-1 truncate group-hover:text-blue-600 transition" title="${inv.name}">${inv.name}</h4>
+                        <p class="text-[11px] text-gray-400 font-bold font-mono bg-gray-50 inline-block px-2 py-0.5 rounded">${inv.id} • ${String(inv.date || '').split('T')[0]}</p>
+                    </div>
+                    <div class="flex justify-between items-end bg-blue-50/50 p-4 rounded-2xl border border-blue-50">
+                        <div>
+                            <p class="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-0.5">Tagihan</p>
+                            <p class="font-black text-blue-800 text-lg leading-none">${formatIDR(inv.total)}</p>
+                        </div>
+                        <button onclick="showPreviewById('${inv.id}')" class="px-4 py-2 bg-blue-900 text-white rounded-xl shadow-lg hover:bg-black hover:scale-105 transition font-bold text-xs">
+                            BUKA
+                        </button>
+                    </div>
+                </div>
+            `;}).join('');
+
+            // Atur Visibilitas Paginasi
+            if (totalPages > 1) {
+                if(paginationControls) paginationControls.classList.remove('hidden');
+                if(paginationControls) paginationControls.classList.add('flex');
+                if(pageInfo) pageInfo.innerText = `Hal ${currentPage} / ${totalPages}`;
+                if(btnPrev) btnPrev.disabled = currentPage === 1;
+                if(btnNext) btnNext.disabled = currentPage === totalPages;
+            } else {
+                if(paginationControls) paginationControls.classList.add('hidden');
+                if(paginationControls) paginationControls.classList.remove('flex');
+            }
+        }
+
+        async function handleStatusSlider(id, value) {
+            const newStatus = statusMap[parseInt(value)];
+            const invIndex = invoiceHistory.findIndex(i => String(i.id) === String(id));
+            
+            if (invIndex !== -1) {
+                invoiceHistory[invIndex].status = newStatus;
+                localStorage.setItem('oase_invoices', JSON.stringify(invoiceHistory));
+                const slider = document.getElementById(`slider-${id}`);
+                const label = document.getElementById(`label-${id}`);
+                if(slider) slider.className = `status-slider state-${value}`;
+                if(label) {
+                    label.innerText = newStatus;
+                    label.className = `text-[10px] font-black uppercase tracking-wider ${value == 0 ? 'text-red-500' : (value == 1 ? 'text-orange-500' : 'text-green-600')}`;
+                }
+                updateStats(); // Update stat realtime
+            }
+            await updateCloudStatus(id, newStatus);
+            showToast("Status Pembayaran Diperbarui", "info");
+        }
+
+        function showPreviewById(id) {
+            const data = invoiceHistory.find(inv => String(inv.id) === String(id));
+            if (data) showPreview(data);
+        }
+
+        function showPreview(data) {
+            if(!data) return;
+            currentPreviewData = data;
+            
+            document.getElementById('render-cust-name').innerText = data.name || '-';
+            document.getElementById('render-inv-id').innerText = data.id || '-';
+            document.getElementById('render-inv-date').innerText = String(data.date || '').split('T')[0];
+            document.getElementById('render-subtotal').innerText = formatIDR(data.subtotal);
+            document.getElementById('render-dp').innerText = formatIDR(data.dp);
+            document.getElementById('render-total').innerText = formatIDR(data.total);
+            document.getElementById('render-status').innerText = `STATUS: ${data.status}`;
+            document.getElementById('render-footer-cust').innerText = data.name || '-';
+            document.getElementById('render-footer-admin').innerText = data.admin || 'Admin Oase';
+            
+            // Pengecekan Jika Gambar TTD Base64 belum siap, isi manual
+            const sigImg = document.getElementById('render-signature-img');
+            if(sigImg && !sigImg.src.startsWith('data:image')) {
+                 if(preloadedBase64Signature) sigImg.src = preloadedBase64Signature;
+            }
+
+            const listContainer = document.getElementById('render-items-list');
+            if(listContainer) {
+                listContainer.innerHTML = (data.items || []).map(it => `
+                    <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+                        <td class="p-4 md:p-5">
+                            <p class="font-black text-blue-950 uppercase text-xs md:text-sm mb-1">${it.title}</p>
+                            <p class="text-[10px] text-gray-500 font-bold tracking-widest">${it.detail}</p>
+                        </td>
+                        <td class="p-4 md:p-5 text-right font-black text-gray-900 text-sm md:text-base">${formatIDR(it.cost)}</td>
+                    </tr>
+                `).join('');
+            }
+            
+            const modal = document.getElementById('preview-modal');
+            if(modal) {
+                modal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden'; // Kunci scroll background
+            }
+        }
+
+        function closePreview() { 
+            const modal = document.getElementById('preview-modal');
+            if(modal) {
+                modal.classList.add('hidden'); 
+                document.body.style.overflow = 'auto'; // Buka kunci scroll
+            }
+        }
+
+        // FUNGSI CAPTURE ANTI-ERROR (CORS FIX & SCROLL FIX)
+        async function captureElement(element) {
+            const originalWidth = element.style.width;
+            const originalMaxWidth = element.style.maxWidth;
+            
+            // Mengunci dimensi cetak ke format A4
+            element.style.width = '210mm';
+            element.style.maxWidth = '210mm';
+
+            // Parameter krusial: scrollY 0 agar tidak kosong saat user sudah scroll ke bawah
+            const canvas = await html2canvas(element, {
+                scale: 3, // Skala 3 cukup HD dan tidak membuat HP nge-lag
+                useCORS: true,
+                allowTaint: false, // Wajib false agar toDataURL bisa berjalan
+                logging: false,
+                width: 794,
+                windowWidth: 794,
+                scrollY: 0,
+                scrollX: 0,
+                backgroundColor: '#ffffff'
+            });
+
+            element.style.width = originalWidth;
+            element.style.maxWidth = originalMaxWidth;
+            return canvas;
+        }
+
+        async function exportPDF() {
+            if (!currentPreviewData) return;
+            const btn = document.getElementById('btn-export-pdf');
+            const original = btn.innerText;
+            btn.innerText = "Memproses...";
+            try {
+                const { jsPDF } = window.jspdf;
+                const element = document.getElementById('print-document');
+                const canvas = await captureElement(element);
+                const imgData = canvas.toDataURL('image/jpeg', 0.9); // 0.9 Cukup stabil
+                const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+                pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+                pdf.save(`Oase_Invoice_${currentPreviewData.id}.pdf`);
+                showToast("PDF Berhasil Diunduh", "success");
+            } catch (e) { 
+                console.error(e);
+                showToast("Gagal Unduh PDF. Coba kembali.", "error"); 
+            } finally { btn.innerText = original; }
+        }
+
+        async function exportJPG() {
+            if (!currentPreviewData) return;
+            const btn = document.getElementById('btn-export-jpg');
+            const original = btn.innerText;
+            btn.innerText = "Memproses...";
+            try {
+                const element = document.getElementById('print-document');
+                const canvas = await captureElement(element);
+                const link = document.createElement('a');
+                link.download = `Oase_Invoice_${currentPreviewData.id}.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 1.0);
+                link.click();
+                showToast("JPG Berhasil Diunduh", "success");
+            } catch (e) { 
+                console.error(e);
+                showToast("Gagal Unduh JPG.", "error"); 
+            } finally { btn.innerText = original; }
+        }
+
+        function exportWord() {
+            if (!currentPreviewData) return;
+            const element = document.getElementById('print-document');
+            // Menyiapkan HTML untuk MS Word
+            const content = element.innerHTML;
+            const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Invoice Oase</title><style>table {width:100%; border-collapse:collapse;} th,td {border:1px solid #000; padding:10px; font-family:sans-serif;} .text-blue-900 {color:#1e3a8a;} .text-right {text-align:right;} .text-center {text-align:center;}</style></head><body>";
+            const blob = new Blob([header + content + "</body></html>"], { type: 'application/msword' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `Oase_Invoice_${currentPreviewData.id}.doc`;
+            link.click();
+            showToast("Word Berhasil Diunduh", "info");
+        }
+    </script>
+</body>
+</html>
